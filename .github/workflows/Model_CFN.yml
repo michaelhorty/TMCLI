@@ -18,7 +18,7 @@ jobs:
 
       # Define Arguments for Modeling
       - name: Set CFT Filename (Master, if Nested)
-        run: echo '::set-output name=FILENAME::D:\a\TMCLI\TMCLI\TMutil\bin\Debug\netcoreapp3.1\cfn_complex.json'
+        run: echo '::set-output name=FILENAME::D:\a\TMCLI\TMCLI\cfn_complex.json'
         id: filename
 
       - name: Set ThreatModel Name
