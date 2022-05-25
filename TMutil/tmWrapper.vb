@@ -215,6 +215,23 @@ Public Class TM_Client
         Return TF
     End Function
 
+    Public Function updateThreatStat(T As threatStatusUpdate) As String
+        updateThreatStat = ""
+
+        Dim jBody$ = ""
+        jBody = JsonConvert.SerializeObject(T)
+
+        Return jBody
+
+        Exit Function
+
+        Dim jsoN$ = getAPIData("/api/threatframework", True, jBody$)
+
+        ' TF = JsonConvert.DeserializeObject(Of List(Of tmMiscTrigger))(jsoN)
+
+        ' Return TF
+    End Function
+
 
     Public Function getGroups() As List(Of tmGroups)
         getGroups = New List(Of tmGroups)
@@ -339,6 +356,18 @@ errorcatch:
         Return TF
     End Function
 
+
+    Public Function getCompFrameworks() As List(Of complianceDetails)
+        Dim TF As New List(Of complianceDetails)
+
+        Dim jsoN$ = getAPIData("/api/scf/complianceframeworks/false")
+
+        TF = JsonConvert.DeserializeObject(Of List(Of complianceDetails))(jsoN)
+
+        Return TF
+    End Function
+
+
     Public Function getTFAttr(T As tfRequest) As List(Of tmAttribute)
         Dim TF As New List(Of tmAttribute)
 
@@ -459,6 +488,23 @@ errorcatch:
 
 
     End Sub
+
+    Public Function getUsers(deptID As Integer) As List(Of tmUser)
+        getUsers = New List(Of tmUser)
+        Dim jbody$ = "[" + deptID.ToString + "]"
+        Dim json$ = getAPIData("/api/department/users", True, jbody)
+        getUsers = JsonConvert.DeserializeObject(Of List(Of tmUser))(json)
+    End Function
+
+
+    Public Function getDepartments() As List(Of tmDept)
+        getDepartments = New List(Of tmDept)
+        Dim json$ = getAPIData("/api/departments")
+        getDepartments = JsonConvert.DeserializeObject(Of List(Of tmDept))(json)
+    End Function
+
+
+
 
     Public Sub addThreatToAttribute(A As tmAttribute, threatID As Integer)
         '{"propertyIds":[1503],"propertyEntityType":"Threats","sourceEntityIds":[3301],"LibraryId":66,"EntityType":"Components","IsAddition":true,"BackendId":1}
@@ -825,6 +871,37 @@ errorcatch:
 
     End Function
 
+    Public Function editCOMP(C As tmComponent, Optional actioNtypE$ = "TF_COMPONENT_UPDATED", Optional overrideLIB As Integer = 0, Optional overrideCTYPE As Integer = 0, Optional overrideCTname$ = "") As Boolean
+        editCOMP = False
+        Dim P As New addCompClass
+
+        With C
+            '            .ImagePath = C.ImagePath '"/ComponentImage/DefaultComponent.jpg"
+            If overrideCTYPE Then .ComponentTypeId = overrideCTYPE.ToString Else .ComponentTypeId = C.ComponentTypeId.ToString
+            '           .RiskId = 1
+            '          .CodeTypeId = 1
+            '         .DataClassificationId = 1
+            .Name = C.Name
+            If overrideCTYPE Then .ComponentTypeName = overrideCTname Else .ComponentTypeName = C.ComponentTypeName
+            .Labels = C.Labels
+            '        If overrideLIB Then .LibrayId = overrideLIB Else .LibrayId = C.LibraryId
+            .Description = C.Description
+        End With
+
+        With P
+            If overrideLIB Then .LibraryId = overrideLIB Else .LibraryId = C.LibraryId
+            .EntityType = "Components"
+            .Model = JsonConvert.SerializeObject(C)
+            .ActionType = actioNtypE
+            .IsCopy = False
+        End With
+
+        Dim jBody$ = JsonConvert.SerializeObject(P)
+        Dim json$ = getAPIData("/api/threatframework/componentmaster/addedit", True, jBody, True)
+
+        If InStr(json, "true") Then editCOMP = True
+
+    End Function
     Public Function threatsOfEntity(C As Object, ntyType$) As List(Of tmProjThreat)
         threatsOfEntity = New List(Of tmProjThreat)
         Dim cResp As New tmCompQueryResp
@@ -1380,8 +1457,12 @@ skipTheLoad:
             'here we get the transitive SRs
             ndxTH = ndxTHlib(T.Id) ', lib_TH)
 
+            If ndxTH = -1 Then
+                Console.WriteLine("WARNING - DB ERROR: Threat has been assigned that no longer exists: " + O.Threats(K).Name + " [" + O.Threats(K).Id.ToString + "]")
+                GoTo skipTheLoad
+            End If
 
-                    If lib_TH(ndxTH).isBuilt = True Then
+            If lib_TH(ndxTH).isBuilt = True Then
                 ' added doevents as this seems to trip// suspect lowlevel probs with isBuilt prop
                 'this seems to happen a lot
                 'if we already know SRs, just add them from coll and skip web request
@@ -1444,9 +1525,9 @@ duplicate:
                         Next
                     End With
 skipTheLoad:
-                    lib_TH(ndxTH).isBuilt = True
+            If ndxTH <> -1 Then lib_TH(ndxTH).isBuilt = True
 
-                Next
+        Next
 
 
 
@@ -1709,13 +1790,13 @@ doneHere:
                 mNode = tmMOD.ndxOFnode(300000 + T.SourceId)
 
                 With tmMOD.Nodes(mNode)
-                    Dim newT As New tmProjThreat
+                    Dim newT As New tmSimpleThreatSR
                     newT.Name = T.ThreatName
                     newT.StatusName = T.StatusName
                     newT.Id = T.ThreatId
-                    newT.Description = T.Description
+                    'newT.Description = T.Description
                     ' notes is missing!
-                    newT.RiskName = T.ActualRiskName
+                    'newT.RiskName = T.ActualRiskName
                     .listThreats.Add(newT)
                     .threatCount += 1
                 End With
@@ -2103,13 +2184,12 @@ skipThose:
         nodeJSON = cleanJSON(nodeJSON)
         nodeJSON = cleanJSONright(nodeJSON)
 
-        Dim SS As New JsonSerializerSettings
-        SS.NullValueHandling = NullValueHandling.Ignore
-
-        nodeS = JsonConvert.DeserializeObject(Of List(Of tmNodeData))(nodeJSON, SS)
+        nodeS = JsonConvert.DeserializeObject(Of List(Of tmNodeData))(nodeJSON) ', SS) ', SS)
 
         getProject = JsonConvert.DeserializeObject(Of tmModel)(jsoN)
         getProject.Nodes = nodeS
+
+        '        Call addThreats(getProject, projID) 'add in details of threats not inside Diagram API (eg Protocols)
     End Function
 
 End Class
@@ -2255,6 +2335,38 @@ Public Class tfRequest
     Public ShowHidden As Boolean
 End Class
 
+Public Class threatStatusUpdate
+    Public Id As Long
+    Public ThreatId As Long
+    Public ProjectId As Long
+    Public StatusId As Integer
+End Class
+Public Class complianceDetails
+    Public Id As Integer
+    Public Name As String
+    Public Sections As List(Of compSection)
+
+    Public Sub New()
+        Sections = New List(Of compSection)
+    End Sub
+End Class
+
+Public Class compSection
+    Public Id As Integer
+    Public Name As String
+    Public Title As String
+    Public Domain As String
+    Public SecurityRequirements As List(Of compSRs)
+    Public Sub New()
+        SecurityRequirements = New List(Of compSRs)
+    End Sub
+End Class
+
+Public Class compSRs
+    Public Id As Integer
+    Public Name As String
+End Class
+
 Public Class tmAWSacc
     Public Id As Long
     Public Name$
@@ -2340,15 +2452,59 @@ Public Class tmProjInfo
     Public Version$
     'Public Guid As System.Guid
     Public isInternal As Boolean
+    Public Labels As String
+    Public CreateDate As DateTime
     Public RiskId As Integer
     Public RiskName$
     Public CreatedByName$
     Public LastModifiedByName$
+    Public LastModifiedDate As DateTime
     'Public RiskName As Integer
     Public [Type] As String
     Public CreatedByUserEmail$
     Public Model As tmModel
     'Public nodesFromThreats As Integer 'beginning at 300k, nodes from threats like HTTPS
+End Class
+
+Public Class tmDept
+    Public Id As Integer
+    Public Name$
+    Public TotalLicenses As Integer
+    Public UsedLicenses As Integer
+    Public LibraryId As Integer
+End Class
+Public Class tmUser
+    ' {
+    '"Id" 271,
+    '"Name": "Ahsan",
+    '"Email": "ahsan.rehman@threatmodeler.com",
+    '"Username": "ahsan.rehman@threatmodeler.com",
+    '"UserRoleId": 1,
+    '"UserRoleName": "Admin",
+    '"Activated": false,
+    '"LastLogin": "2022-02-02T20:25:25.263Z",
+    '"DepartmentId": 1,
+    '"UserDepartmentName": "Corporate",
+    '"AspNetUserId": "81285fde-a096-4220-8b3d-7ba9b1e4838f",
+    '"GroupUsers": null,
+    '"TransferOwnershipToUserId": null,
+    '"TransferOwnership": false,
+    '"ReceiveLicenseEmailNotification": true,
+    '"LicenseRenewalEmailNotificationSent": false,
+    '"Company": null,
+    '"ApiKey": null
+
+    Public Id As Integer
+    Public Name As String
+    Public Email As String
+    Public Username As String
+    Public UserRoleId As Integer
+    Public UserRoleName As String
+    Public Activated As Boolean
+    Public LastLogin? As DateTime
+    Public DepartmentId As Integer
+    Public ApiKey As String
+
 End Class
 
 Public Class tmProjThreat
@@ -2562,6 +2718,9 @@ Public Class tmComponent
     Public listAttr As List(Of tmAttribute)
     Public isBuilt As Boolean
 
+    Public modelsPresent As List(Of Integer)
+    Public numInstancesPerModel As List(Of Integer)
+
     Public duplicateSRs As Collection
 
     Public Function numLabels() As Integer
@@ -2570,6 +2729,21 @@ Public Class tmComponent
         Else
             Return numCHR(Labels, ",") + 1
         End If
+    End Function
+
+    Public Function getModelNDX(ID As Integer) As Integer
+        getModelNDX = -1
+
+        Dim ctR As Integer = 0
+
+        For Each M In modelsPresent
+            If M = ID Then
+                Return ctR
+                Exit Function
+            End If
+            ctR += 1
+        Next
+
     End Function
 
     Public ReadOnly Property CompID() As Long
@@ -2607,6 +2781,8 @@ Public Class tmComponent
         listAttr = New List(Of tmAttribute)
         isBuilt = False
         duplicateSRs = New Collection
+        numInstancesPerModel = New List(Of Integer)
+        modelsPresent = New List(Of Integer)
     End Sub
 
 End Class
@@ -2652,8 +2828,8 @@ Public Class tmNodeData
         Public LayoutWidth As Single
         Public LayoutHeight As Single
         Public componentProperties$
-        Public listThreats As List(Of tmProjThreat)
-        Public listSecurityRequirements As List(Of tmProjSecReq)
+    Public listThreats As List(Of tmSimpleThreatSR)
+    Public listSecurityRequirements As List(Of tmSimpleThreatSR)
     Public ComponentTypeName$
     Public ComponentName$
     Public Notes$
@@ -2661,10 +2837,16 @@ Public Class tmNodeData
     Public threatCount As Integer
 
     Public Sub New()
-        Me.listSecurityRequirements = New List(Of tmProjSecReq)
-        Me.listThreats = New List(Of tmProjThreat)
+        Me.listSecurityRequirements = New List(Of tmSimpleThreatSR)
+        Me.listThreats = New List(Of tmSimpleThreatSR)
 
     End Sub
+End Class
+
+Public Class tmSimpleThreatSR
+    Public Id As Integer
+    Public Name$
+    Public StatusName$
 End Class
 
 Public Class TF_Threat
